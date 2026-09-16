@@ -1,46 +1,38 @@
-'''
-test.py에서 찾은 최적의 모델과 최적의 특징을 사용해, 
-DT+KNN 모델을 사용해 2차 특징 추출하고 최적의 모델을 찾는 파일
-'''
+"""
+Train and evaluate the final DT+KNN pipeline using the
+hyperparameters selected in model_selection.py.
+"""
 
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, Normalizer
+from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 #===============================================
-# 필요한 변수 설정
+# Configuration
 #===============================================
 CLASS_LABELS = ['in', 'noise', 'normal', 'other', 'out']
-CLASS_N = len(CLASS_LABELS)
-class_to_index = {Class: index for index, Class in enumerate(CLASS_LABELS)}
-BEST_DEPTH = 40 # Decision Tree 최적의 depth
-BEST_K = 1 # KNN 최적의 K
-selected_features_1 = ['lrate'] + [f'{i}HZ' for i in range(0, 5120, 10)] # 1차 특징 추출
+NUM_CLASSES = len(CLASS_LABELS)
+CLASS_TO_INDEX = {label: index for index, label in enumerate(CLASS_LABELS)}
+BEST_DEPTH = 32  # Selected Decision Tree depth
+BEST_K = 1  # Selected number of KNN neighbors
+INITIAL_FEATURES = ['lrate'] + [f'{i}HZ' for i in range(0, 5120, 10)]  # Initial feature set
 
 #===============================================
-# 함수 정의
+# Functions
 #===============================================
-# 데이터 스케일링 함수    
-def get_scaler(x_train, method='standard'):
-    if method == 'standard':
-        scaler = StandardScaler()
-    elif method == 'minmax':
-        scaler = MinMaxScaler()
-    elif method == 'normalize':
-        scaler = Normalizer()
-    else:
-        raise ValueError("지원되지 않는 스케일링 방식입니다.")
-
+# Fit feature scaler
+def get_scaler(x_train):
+    scaler = StandardScaler()
     scaler.fit(x_train)
-
     return scaler
 
-# 중요 특징 추출 함수
+# Select the most important features
 def get_top_features(x_train, y_train, top_n):
     model = DecisionTreeClassifier(max_depth=BEST_DEPTH, criterion='gini', random_state=42)
     model.fit(x_train, y_train)
@@ -50,154 +42,165 @@ def get_top_features(x_train, y_train, top_n):
 
     return indices
 
-# 최적의 특징 개수 찾기 
-def find_best_feature_count(x_train, y_train, top_n_range=range(80, 130, 1)):
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    val_scores = [] # 검증 데이터 성능을 저장할 리스트
-    tr_scores = [] # 훈련 데이터 성능을 저장할 리스트
-    best_accuracy = 0 # 최적의 성능을 저장할 변수
-    best_indices = None # 최적의 특징 인덱스를 저장할 변수
+# Select the optimal number of features
+def find_best_feature_count(
+    x_train,
+    y_train,
+    groups,
+    top_n_range=range(80, 130),
+):
+    kf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+    val_scores = []
+    tr_scores = []
+    best_accuracy = 0.0
+    best_n = None
 
     for top_n in top_n_range:
-        indices = get_top_features(x_train, y_train, top_n)
-        x_train_selected = x_train[:, indices]
+        val_fold_scores = []
+        tr_fold_scores = []
 
-        val_fold_scores = [] # 각 fold의 검증 데이터 성능을 저장할 리스트
-        tr_fold_scores = [] # 각 fold의 훈련 데이터 성능을 저장할 리스트
-        # KFold 적용
-        for train_index, val_index in kf.split(x_train_selected, y_train):
-            x_tr, x_val = x_train_selected[train_index], x_train_selected[val_index]    
+        for train_index, val_index in kf.split(x_train, y_train, groups):
+            x_tr, x_val = x_train[train_index], x_train[val_index]
             y_tr, y_val = y_train[train_index], y_train[val_index]
 
-            # 데이터 스케일링
-            scaler = get_scaler(x_tr)
-            x_tr_scaled = scaler.transform(x_tr)
-            x_val_scaled = scaler.transform(x_val)
+            # Select features using only the training portion of this fold.
+            indices = get_top_features(x_tr, y_tr, top_n)
+            x_tr_selected = x_tr[:, indices]
+            x_val_selected = x_val[:, indices]
 
-            # 모델 학습
+            # Fit preprocessing only on the training portion of this fold.
+            scaler = get_scaler(x_tr_selected)
+            x_tr_scaled = scaler.transform(x_tr_selected)
+            x_val_scaled = scaler.transform(x_val_selected)
+
             knn_model = KNeighborsClassifier(n_neighbors=BEST_K)
             knn_model.fit(x_tr_scaled, y_tr)
 
-            # 훈련 데이터 성능 출력
             y_tr_predict = knn_model.predict(x_tr_scaled)
-            tr_matrix = Confusion_Matrix(y_tr, y_tr_predict)
-            _, _, tr_accuracy = Evaluation(tr_matrix)
+            tr_matrix = build_confusion_matrix(y_tr, y_tr_predict)
+            _, _, tr_accuracy = evaluate_metrics(tr_matrix)
             tr_fold_scores.append(tr_accuracy)
 
-            # 검증 데이터 성능 출력
             y_val_predict = knn_model.predict(x_val_scaled)
-            val_matrix = Confusion_Matrix(y_val, y_val_predict)
-            _, _, val_accuracy = Evaluation(val_matrix)
+            val_matrix = build_confusion_matrix(y_val, y_val_predict)
+            _, _, val_accuracy = evaluate_metrics(val_matrix)
             val_fold_scores.append(val_accuracy)
 
-        # 각 특징 개수에 대한 평균 성능 계산
         mean_val_score = np.mean(val_fold_scores)
         mean_tr_score = np.mean(tr_fold_scores)
-        val_scores.append(mean_val_score) # 각 특징 개수에 대한 검증 데이터 성능
-        tr_scores.append(mean_tr_score) # 각 특징 개수에 대한 훈련 데이터 성능
-        print(f"[K-Fold on training set] Top {top_n} features, Training Accuracy: {mean_tr_score:.4f}, Validation Accuracy: {mean_val_score:.4f}")
+        val_scores.append(mean_val_score)
+        tr_scores.append(mean_tr_score)
+
+        print(
+            f"[Group CV] Top {top_n} features, "
+            f"Training Accuracy: {mean_tr_score:.4f}, "
+            f"Validation Accuracy: {mean_val_score:.4f}"
+        )
 
         if mean_val_score > best_accuracy:
             best_accuracy = mean_val_score
             best_n = top_n
-            best_indices = indices
 
-    # 그래프 그리기
     plt.figure(figsize=(10, 6))
-    plt.plot(list(top_n_range), tr_scores, 'b-', label='Training Accuracy')
-    plt.plot(list(top_n_range), val_scores, 'r-', label='Validation Accuracy')
-    plt.xlabel('Top-N Feature Count')
-    plt.ylabel('Accuracy')
-    plt.title('Decision Tree + KNN: Training vs Validation Accuracy')
+    plt.plot(list(top_n_range), tr_scores, "b-", label="Training Accuracy")
+    plt.plot(list(top_n_range), val_scores, "r-", label="Validation Accuracy")
+    plt.xlabel("Top-N Feature Count")
+    plt.ylabel("Accuracy")
+    plt.title("Decision Tree + KNN: Training vs Validation Accuracy")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # 최적 특징 개수와 해당하는 인덱스 찾기
     print(f"Best feature count: {best_n}")
 
-    return best_indices
+    # After model selection, fit feature selection once on the full training set.
+    return get_top_features(x_train, y_train, best_n)
 
-# 혼동 행렬 생성 함수   
-def Confusion_Matrix(y_test, y_pred):
-    matrix = np.zeros((CLASS_N, CLASS_N))
-    
+
+# Build confusion matrix
+def build_confusion_matrix(y_test, y_pred):
+    matrix = np.zeros((NUM_CLASSES, NUM_CLASSES))
+
     for true, pred in zip(y_test, y_pred):
-        actual_index = class_to_index[true]
-        pred_index = class_to_index[pred]
-        matrix[pred_index, actual_index] += 1
-    
+        actual_index = CLASS_TO_INDEX[true]
+        pred_index = CLASS_TO_INDEX[pred]
+        matrix[actual_index, pred_index] += 1
+
     return matrix
 
-# 성능 평가 함수
-def Evaluation(matrix):
+# Compute macro recall, macro precision, and accuracy
+def evaluate_metrics(matrix):
     recalls = []
     precisions = []
-    
-    for index, Class in enumerate(CLASS_LABELS):
+
+    for index in range(NUM_CLASSES):
         TP = matrix[index, index]
-        FP = np.sum(matrix[index, :]) - TP
-        FN = np.sum(matrix[:, index]) - TP
-        
+        FP = np.sum(matrix[:, index]) - TP
+        FN = np.sum(matrix[index, :]) - TP
+
         recall = TP / (TP + FN) if (TP + FN) > 0 else 0
         precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-        
+
         recalls.append(recall)
         precisions.append(precision)
-    
+
     recall = np.mean(recalls)
     precision = np.mean(precisions)
     accuracy = np.sum(np.diag(matrix)) / np.sum(matrix)
-    
+
     return recall, precision, accuracy
 
 
 #===============================================
-# 메인 함수
+# Main workflow
 #===============================================
 def main():
-    # 지수 표기법으로 출력되지 않게 설정
+    # Disable scientific notation for matrix output
     np.set_printoptions(suppress=True, precision=0)
 
-    # 데이터 로드
-    train_data = pd.read_csv('/Users/yeseo/Desktop/항공우주AI기초/Project_2/Project_2_Classification_training_data.csv')
-    test_data = pd.read_csv('/Users/yeseo/Desktop/항공우주AI기초/Project_2/Project_2_Classification_testing_data.csv')
-    x_train = train_data[selected_features_1].values
+    # Load data
+    project_root = Path(__file__).resolve().parents[1]
+    train_data = pd.read_csv(project_root / "Project_2_Classification_training_data.csv")
+    test_data = pd.read_csv(project_root / "Project_2_Classification_testing_data.csv")
+    x_train = train_data[INITIAL_FEATURES].values
     y_train = train_data['leaktype'].values
-    x_test = test_data[selected_features_1].values
+    groups = pd.factorize(
+        pd.MultiIndex.from_frame(train_data[['site', 'sid', 'ldate']])
+    )[0]
+    x_test = test_data[INITIAL_FEATURES].values
     y_test = test_data['leaktype'].values
 
     #===============================================
-    # Decision Tree -> 최적의 특징 찾기
+    # Select the optimal feature count using Decision Tree importance
     #===============================================
-    best_indices = find_best_feature_count(x_train, y_train)
-    selected_features_2 = [selected_features_1[i] for i in best_indices]
-    print(f"Selected features: {selected_features_2}")
+    best_indices = find_best_feature_count(x_train, y_train, groups)
+    selected_features = [INITIAL_FEATURES[i] for i in best_indices]
+    print(f"Selected features: {selected_features}")
 
-    # 최적 특징 추출
+    # Select the final features using the full training set
     x_train_selected = x_train[:, best_indices]
     x_test_selected = x_test[:, best_indices]
 
     #===============================================
-    # KNN -> 테스트 데이터 성능 확인
+    # Train KNN and evaluate on the held-out test set
     #===============================================
-    # 데이터 스케일링
+    # Scale features
     scaler = get_scaler(x_train_selected)
     x_train_selected_scaled = scaler.transform(x_train_selected)
     x_test_selected_scaled = scaler.transform(x_test_selected)
 
-    # 모델 학습
+    # Train model
     knn_model = KNeighborsClassifier(n_neighbors=BEST_K)
     knn_model.fit(x_train_selected_scaled, y_train)
 
-    # 테스트 성능 출력
+    # Evaluate on the held-out test set
     y_predict = knn_model.predict(x_test_selected_scaled)
-    matrix = Confusion_Matrix(y_test, y_predict)
+    matrix = build_confusion_matrix(y_test, y_predict)
     print(matrix)
-    recall, precision, accuracy = Evaluation(matrix)
+    recall, precision, accuracy = evaluate_metrics(matrix)
     print("recall: %.2f, precision: %.2f, accuracy: %.2f" %(recall, precision, accuracy))
 
 
-# 메인 함수 실행
+# Entry point
 if __name__ == "__main__":
     main()
