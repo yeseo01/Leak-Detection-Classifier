@@ -156,11 +156,9 @@ My main responsibility was algorithm implementation and performance analysis. I:
 - contributed to identifying the initial feature set used by the classification pipeline;
 - analyzed model performance and the effects of feature dimensionality.
 
-### Team Contributions
+### Team Project Context
 
-**Yonghee Jang** proposed the hybrid DTKNN concept: using Decision Tree feature importance for feature selection followed by KNN classification. He also contributed to structuring the overall presentation and project narrative.
-
-**Jinwon Park** analyzed the frequency-domain waveforms and proposed refining the frequency range used during feature exploration. He also contributed to interpreting and presenting the final DTKNN results.
+This project was originally developed by a three-person team. The overall DTKNN concept and parts of the signal analysis and presentation were developed collaboratively with teammates.
 
 ## Repository Refinement
 
