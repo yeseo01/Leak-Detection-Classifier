@@ -160,8 +160,8 @@ def main():
 
     # Load data
     project_root = Path(__file__).resolve().parents[1]
-    train_data = pd.read_csv(project_root / "Project_2_Classification_training_data.csv")
-    test_data = pd.read_csv(project_root / "Project_2_Classification_testing_data.csv")
+    train_data = pd.read_csv(project_root / "classification_training_data.csv")
+    test_data = pd.read_csv(project_root / "classification_testing_data.csv")
     x_train = train_data[INITIAL_FEATURES].values
     y_train = train_data['leaktype'].values
     groups = pd.factorize(

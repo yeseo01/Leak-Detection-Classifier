@@ -27,8 +27,8 @@ The original AIHub CSV files are not included in this repository because redistr
 After obtaining the dataset from AIHub, place the following files in the repository root:
 
 ```text
-Project_2_Classification_training_data.csv
-Project_2_Classification_testing_data.csv
+classification_training_data.csv
+classification_testing_data.csv
 ```
 
 The current model uses:

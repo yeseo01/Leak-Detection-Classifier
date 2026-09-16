@@ -3,14 +3,6 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# AIHub dataset - do not redistribute
-Project_2_Classification_training_data.csv
-Project_2_Classification_testing_data.csv
-
-# Local coursework artifacts
-0503-YLWDC.pdf
-AI_term2_team8.pptx
-DTKNN.drawio.png
-Hybrid_classification.pdf
-Project_2_classification.pdf
-src.zip
+# AIHub source data - not redistributed
+classification_training_data.csv
+classification_testing_data.csv

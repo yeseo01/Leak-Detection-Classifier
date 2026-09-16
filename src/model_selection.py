@@ -175,7 +175,7 @@ def evaluate_metrics(matrix):
 def main():
     project_root = Path(__file__).resolve().parents[1]
     train_data = pd.read_csv(
-        project_root / "Project_2_Classification_training_data.csv"
+        project_root / "classification_training_data.csv"
     )
 
     features = ["lrate"] + [f"{i}HZ" for i in range(0, 5120, 10)]
